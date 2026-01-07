@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  APIM Policy: IP Whitelisting
+  
+  This policy restricts API access to specific IP addresses or ranges.
+-->
+<policies>
+    <inbound>
+        <base />
+        
+        <!-- IP filtering -->
+        <ip-filter action="allow">
+            <!-- Add your allowed IP addresses/ranges -->
+            <address>13.64.0.0/16</address>
+            <address>13.104.0.0/14</address>
+            <address>52.96.0.0/12</address>
+            <!-- Add specific IPs -->
+            <address>203.0.113.5</address>
+            <address-range from="192.168.1.1" to="192.168.1.100" />
+        </ip-filter>
+        
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+        <return-response>
+            <set-status code="403" reason="Forbidden" />
+            <set-header name="Content-Type" exists-action="override">
+                <value>application/json</value>
+            </set-header>
+            <set-body>@{
+                return new JObject(
+                    new JProperty("error", "Access denied"),
+                    new JProperty("message", "Your IP address is not allowed to access this API")
+                ).ToString();
+            }</set-body>
+        </return-response>
+    </on-error>
+</policies>

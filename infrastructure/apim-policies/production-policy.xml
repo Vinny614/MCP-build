@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  APIM Policy: Complete Production Policy
+  
+  This policy combines all best practices for a production-ready setup:
+  - Authentication (JWT or API Key)
+  - Rate limiting
+  - IP filtering (optional)
+  - CORS
+  - Caching
+  - Request/Response transformation
+  - Logging
+  - Error handling
+-->
+<policies>
+    <inbound>
+        <base />
+        
+        <!-- Step 1: Authentication -->
+        <!-- Choose either JWT validation OR subscription key -->
+        <choose>
+            <when condition="@(context.Request.Headers.ContainsKey("Authorization"))">
+                <!-- JWT validation for OAuth/Azure AD -->
+                <validate-jwt 
+                    header-name="Authorization" 
+                    failed-validation-httpcode="401" 
+                    failed-validation-error-message="Unauthorized. Access token is missing or invalid.">
+                    <openid-config url="https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration" />
+                    <audiences>
+                        <audience>api://your-app-id</audience>
+                    </audiences>
+                </validate-jwt>
+            </when>
+            <otherwise>
+                <!-- API Key validation (default APIM subscription key) -->
+                <check-header name="Ocp-Apim-Subscription-Key" failed-check-httpcode="401" failed-check-error-message="Subscription key is required" ignore-case="false" />
+            </otherwise>
+        </choose>
+        
+        <!-- Step 2: IP Filtering (uncomment if needed) -->
+        <!--
+        <ip-filter action="allow">
+            <address>13.64.0.0/16</address>
+            <address>203.0.113.5</address>
+        </ip-filter>
+        -->
+        
+        <!-- Step 3: Rate Limiting -->
+        <rate-limit-by-key calls="100" 
+                           renewal-period="60" 
+                           counter-key="@(context.Subscription?.Id ?? "anonymous")" />
+        
+        <!-- Step 4: Quota Management -->
+        <quota-by-key calls="10000" 
+                      renewal-period="86400" 
+                      counter-key="@(context.Subscription?.Id ?? "anonymous")" />
+        
+        <!-- Step 5: CORS Configuration -->
+        <cors allow-credentials="true">
+            <allowed-origins>
+                <origin>https://yourdomain.com</origin>
+                <origin>https://app.yourdomain.com</origin>
+            </allowed-origins>
+            <allowed-methods>
+                <method>GET</method>
+                <method>POST</method>
+                <method>PUT</method>
+                <method>DELETE</method>
+                <method>OPTIONS</method>
+            </allowed-methods>
+            <allowed-headers>
+                <header>*</header>
+            </allowed-headers>
+            <expose-headers>
+                <header>X-Correlation-Id</header>
+                <header>X-RateLimit-Remaining</header>
+            </expose-headers>
+        </cors>
+        
+        <!-- Step 6: Cache Lookup (for GET requests) -->
+        <choose>
+            <when condition="@(context.Request.Method == "GET")">
+                <cache-lookup vary-by-developer="false" vary-by-developer-groups="false">
+                    <vary-by-header>Accept</vary-by-header>
+                    <vary-by-query-parameter>*</vary-by-query-parameter>
+                </cache-lookup>
+            </when>
+        </choose>
+        
+        <!-- Step 7: Request Enrichment -->
+        <set-variable name="correlationId" value="@(Guid.NewGuid().ToString())" />
+        <set-variable name="requestTime" value="@(DateTime.UtcNow)" />
+        
+        <set-header name="X-Correlation-Id" exists-action="override">
+            <value>@((string)context.Variables["correlationId"])</value>
+        </set-header>
+        
+        <set-header name="X-Request-Time" exists-action="override">
+            <value>@(((DateTime)context.Variables["requestTime"]).ToString("o"))</value>
+        </set-header>
+        
+        <set-header name="X-Forwarded-For" exists-action="override">
+            <value>@(context.Request.IpAddress)</value>
+        </set-header>
+        
+        <!-- Step 8: Set Backend Service -->
+        <set-backend-service backend-id="mcp-server-backend" />
+        
+        <!-- Step 9: Request Logging -->
+        <log-to-eventhub logger-id="apim-logger">@{
+            return new JObject(
+                new JProperty("EventType", "Request"),
+                new JProperty("CorrelationId", context.Variables["correlationId"]),
+                new JProperty("RequestTime", context.Variables["requestTime"]),
+                new JProperty("Method", context.Request.Method),
+                new JProperty("Url", context.Request.Url.ToString()),
+                new JProperty("IpAddress", context.Request.IpAddress),
+                new JProperty("UserId", context.User?.Id ?? "anonymous")
+            ).ToString();
+        }</log-to-eventhub>
+        
+    </inbound>
+    
+    <backend>
+        <!-- Forward request with timeout -->
+        <forward-request timeout="30" follow-redirects="true" />
+    </backend>
+    
+    <outbound>
+        <base />
+        
+        <!-- Step 10: Cache Store (for successful GET responses) -->
+        <choose>
+            <when condition="@(context.Request.Method == "GET" && context.Response.StatusCode == 200)">
+                <cache-store duration="300" />
+            </when>
+        </choose>
+        
+        <!-- Step 11: Response Enrichment -->
+        <set-header name="X-Correlation-Id" exists-action="override">
+            <value>@((string)context.Variables["correlationId"])</value>
+        </set-header>
+        
+        <set-header name="X-Response-Time" exists-action="override">
+            <value>@(DateTime.UtcNow.ToString("o"))</value>
+        </set-header>
+        
+        <set-header name="X-Processing-Time" exists-action="override">
+            <value>@((DateTime.UtcNow - (DateTime)context.Variables["requestTime"]).TotalMilliseconds.ToString()) ms</value>
+        </set-header>
+        
+        <!-- Step 12: Security Headers -->
+        <set-header name="X-Content-Type-Options" exists-action="override">
+            <value>nosniff</value>
+        </set-header>
+        
+        <set-header name="X-Frame-Options" exists-action="override">
+            <value>DENY</value>
+        </set-header>
+        
+        <set-header name="Strict-Transport-Security" exists-action="override">
+            <value>max-age=31536000; includeSubDomains</value>
+        </set-header>
+        
+        <!-- Step 13: Remove Sensitive Headers -->
+        <set-header name="X-Powered-By" exists-action="delete" />
+        <set-header name="X-AspNet-Version" exists-action="delete" />
+        <set-header name="Server" exists-action="delete" />
+        
+        <!-- Step 14: Response Logging -->
+        <log-to-eventhub logger-id="apim-logger">@{
+            return new JObject(
+                new JProperty("EventType", "Response"),
+                new JProperty("CorrelationId", context.Variables["correlationId"]),
+                new JProperty("StatusCode", context.Response.StatusCode),
+                new JProperty("ProcessingTime", (DateTime.UtcNow - (DateTime)context.Variables["requestTime"]).TotalMilliseconds)
+            ).ToString();
+        }</log-to-eventhub>
+        
+    </outbound>
+    
+    <on-error>
+        <base />
+        
+        <!-- Step 15: Error Logging -->
+        <log-to-eventhub logger-id="apim-logger">@{
+            return new JObject(
+                new JProperty("EventType", "Error"),
+                new JProperty("CorrelationId", context.Variables.GetValueOrDefault("correlationId", "unknown")),
+                new JProperty("ErrorMessage", context.LastError.Message),
+                new JProperty("ErrorSource", context.LastError.Source),
+                new JProperty("StatusCode", context.Response.StatusCode)
+            ).ToString();
+        }</log-to-eventhub>
+        
+        <!-- Step 16: Custom Error Response -->
+        <return-response>
+            <set-status code="@(context.Response.StatusCode)" />
+            <set-header name="Content-Type" exists-action="override">
+                <value>application/json</value>
+            </set-header>
+            <set-header name="X-Correlation-Id" exists-action="override">
+                <value>@(context.Variables.GetValueOrDefault("correlationId", "unknown").ToString())</value>
+            </set-header>
+            <set-body>@{
+                var errorCode = context.Response.StatusCode;
+                var errorMessage = context.LastError?.Message ?? "An error occurred";
+                
+                return new JObject(
+                    new JProperty("error", new JObject(
+                        new JProperty("code", errorCode),
+                        new JProperty("message", errorMessage),
+                        new JProperty("correlationId", context.Variables.GetValueOrDefault("correlationId", "unknown")),
+                        new JProperty("timestamp", DateTime.UtcNow.ToString("o"))
+                    ))
+                ).ToString();
+            }</set-body>
+        </return-response>
+        
+    </on-error>
+</policies>

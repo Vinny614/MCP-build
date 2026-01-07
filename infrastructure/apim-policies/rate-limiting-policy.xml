@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 
+  APIM Policy: Rate Limiting and Quota
+  
+  This policy implements rate limiting and quota management
+  to protect backend services from overload.
+-->
+<policies>
+    <inbound>
+        <base />
+        
+        <!-- Rate limit: 100 calls per minute per subscription -->
+        <rate-limit calls="100" renewal-period="60">
+            <api name="*" calls="100" renewal-period="60" />
+        </rate-limit>
+        
+        <!-- Quota: 10,000 calls per day per subscription -->
+        <quota calls="10000" renewal-period="86400" />
+        
+        <!-- Set custom header for rate limit info -->
+        <set-header name="X-RateLimit-Limit" exists-action="override">
+            <value>100</value>
+        </set-header>
+        
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  APIM Policy: Request/Response Transformation
+  
+  This policy demonstrates request and response transformation capabilities.
+-->
+<policies>
+    <inbound>
+        <base />
+        
+        <!-- Add correlation ID -->
+        <set-variable name="correlationId" value="@(Guid.NewGuid().ToString())" />
+        
+        <!-- Set headers for backend -->
+        <set-header name="X-Correlation-Id" exists-action="override">
+            <value>@((string)context.Variables["correlationId"])</value>
+        </set-header>
+        
+        <set-header name="X-Request-Time" exists-action="override">
+            <value>@(DateTime.UtcNow.ToString("o"))</value>
+        </set-header>
+        
+        <!-- Transform request body if needed -->
+        <!-- Example: Add metadata to request -->
+        <set-body>@{
+            var body = context.Request.Body.As<JObject>(preserveContent: true);
+            if (body != null) {
+                body.Add("metadata", new JObject(
+                    new JProperty("timestamp", DateTime.UtcNow.ToString("o")),
+                    new JProperty("correlationId", context.Variables["correlationId"]),
+                    new JProperty("source", "APIM")
+                ));
+            }
+            return body.ToString();
+        }</set-body>
+        
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+        
+        <!-- Add correlation ID to response -->
+        <set-header name="X-Correlation-Id" exists-action="override">
+            <value>@((string)context.Variables["correlationId"])</value>
+        </set-header>
+        
+        <!-- Add response time -->
+        <set-header name="X-Response-Time" exists-action="override">
+            <value>@(DateTime.UtcNow.ToString("o"))</value>
+        </set-header>
+        
+        <!-- Remove sensitive headers -->
+        <set-header name="X-Powered-By" exists-action="delete" />
+        <set-header name="X-AspNet-Version" exists-action="delete" />
+        <set-header name="Server" exists-action="delete" />
+        
+    </outbound>
+    <on-error>
+        <base />
+        
+        <!-- Custom error response -->
+        <return-response>
+            <set-status code="@(context.Response.StatusCode)" />
+            <set-header name="Content-Type" exists-action="override">
+                <value>application/json</value>
+            </set-header>
+            <set-body>@{
+                return new JObject(
+                    new JProperty("error", context.LastError.Message),
+                    new JProperty("correlationId", context.Variables["correlationId"]),
+                    new JProperty("timestamp", DateTime.UtcNow.ToString("o"))
+                ).ToString();
+            }</set-body>
+        </return-response>
+        
+    </on-error>
+</policies>

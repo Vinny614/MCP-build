@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  APIM Policy: JWT Validation
+  
+  This policy validates Azure AD JWT tokens for authentication.
+  Configure with your Azure AD tenant information.
+-->
+<policies>
+    <inbound>
+        <base />
+        
+        <!-- Validate JWT token -->
+        <validate-jwt 
+            header-name="Authorization" 
+            failed-validation-httpcode="401" 
+            failed-validation-error-message="Unauthorized. Access token is missing or invalid.">
+            
+            <!-- Azure AD B2C / Azure AD configuration -->
+            <openid-config url="https://login.microsoftonline.com/{tenant-id}/v2.0/.well-known/openid-configuration" />
+            
+            <!-- Audience validation -->
+            <audiences>
+                <audience>api://{client-id}</audience>
+            </audiences>
+            
+            <!-- Issuer validation -->
+            <issuers>
+                <issuer>https://sts.windows.net/{tenant-id}/</issuer>
+                <issuer>https://login.microsoftonline.com/{tenant-id}/v2.0</issuer>
+            </issuers>
+            
+            <!-- Required claims -->
+            <required-claims>
+                <claim name="roles" match="any">
+                    <value>MCP.Read</value>
+                    <value>MCP.Write</value>
+                    <value>MCP.Admin</value>
+                </claim>
+            </required-claims>
+        </validate-jwt>
+        
+        <!-- Extract user identity from token -->
+        <set-variable name="userId" value="@(context.Request.Headers.GetValueOrDefault("Authorization","").AsJwt()?.Subject)" />
+        
+        <!-- Set user identity header for backend -->
+        <set-header name="X-User-Id" exists-action="override">
+            <value>@((string)context.Variables["userId"])</value>
+        </set-header>
+        
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  APIM Policy: Caching
+  
+  This policy implements response caching to improve performance
+  and reduce backend load.
+-->
+<policies>
+    <inbound>
+        <base />
+        
+        <!-- Check cache for GET requests -->
+        <cache-lookup vary-by-developer="false" vary-by-developer-groups="false" downstream-caching-type="none">
+            <vary-by-header>Accept</vary-by-header>
+            <vary-by-header>Accept-Encoding</vary-by-header>
+            <vary-by-query-parameter>*</vary-by-query-parameter>
+        </cache-lookup>
+        
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+        
+        <!-- Cache successful responses for 5 minutes -->
+        <cache-store duration="300" />
+        
+        <!-- Add cache control headers -->
+        <set-header name="Cache-Control" exists-action="override">
+            <value>public, max-age=300</value>
+        </set-header>
+        
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

@@ -1,0 +1,27 @@
+# Example terraform.tfvars file
+# Copy this file to terraform.tfvars and customize as needed
+
+environment  = "dev"
+location     = "eastus"
+project_name = "mcpserver"
+
+# APIM Configuration
+apim_sku      = "Developer"  # Options: Developer, Basic, Standard, Premium
+apim_capacity = 1
+
+# App Service Configuration
+app_service_sku = "B1"  # Options: F1 (Free), B1, B2, S1, S2, P1V2, etc.
+
+# CORS Configuration
+allowed_origins = ["*"]  # Customize for production
+
+# Network Configuration
+enable_vnet = false  # Set to true for VNet integration
+
+# Tags
+tags = {
+  Project     = "MCP-Server"
+  ManagedBy   = "Terraform"
+  Environment = "dev"
+  CostCenter  = "Engineering"
+}
